@@ -1,0 +1,3 @@
+{"plan_counts": {"conflict": 0, "create": 0, "drift": 2, "noop": 22, "orphan": 0, "update": 0}, "project": "RISK", "register_sha256": "d104312dfea5a5d941766a79bd9844ebbdddd96371ee3f4c92f1edd234054644", "time": "2026-10-07T21:58:42.675391+00:00", "tool_version": "0.1.0", "type": "run"}
+{"action": "update", "changes": {"priority": {"after": "Highest", "before": "Low"}}, "drift": true, "drift_fields": ["priority"], "http_status": 204, "key": "RISK-5", "ok": true, "risk_id": "R-005", "type": "write"}
+{"action": "update", "changes": {"duedate": {"after": "2026-11-30", "before": "2026-12-03"}}, "drift": true, "drift_fields": ["duedate"], "http_status": 204, "key": "RISK-13", "ok": true, "risk_id": "R-013", "type": "write"}

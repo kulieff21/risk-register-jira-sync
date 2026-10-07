@@ -65,7 +65,23 @@ without it the tool cannot tell drift from a normal change and rewrites each des
 
 ## Results
 
-Live-run results against a real Jira Cloud site will be added here. The tests in this repository
-run offline against an in-memory fake Jira and a local HTTP server.
+**Offline:** 105 tests against an in-memory fake Jira and a local HTTP server (`uv run pytest -q`).
+
+**Live run, 2026-10-08, against a Jira Cloud site** (company-managed Kanban project `RISK`,
+24 synthetic risks). Every step below is recorded in `results/audit/` and
+`results/live-2026-10-08-report.md`.
+
+| Step | Result |
+|---|---|
+| `setup` | credentials checked, project created through the API |
+| first `sync --apply` | 24 issues created, 24 audit lines |
+| second `sync --apply`, nothing changed | **0 writes** (24 noop) |
+| by hand in Jira: 2 issues moved (Done, In Progress), priority of R-005 and due date of R-013 edited, a `test` label added | dry run: **drift 2** (exactly the two edited fields), 22 noop; status moves are not drift |
+| `sync --apply` | 2 writes; the audit log keeps the overwritten Jira values (`Low`, `2026-12-03`); the hand-added `test` label survived |
+| `report --today 2026-10-08` | **4 overdue** treatments: 5 are past due, R-001 is not listed because its issue is Done |
+
+Jira returns status names in the user's interface language (the live report shows Turkish names
+such as "Devam Ediyor"). The tool decides "done" from the status category, so this did not change
+any result; a check by status name would have.
 
 See `DESIGN.md` for the full contract. Licence: MIT.

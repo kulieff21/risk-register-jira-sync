@@ -1,0 +1,94 @@
+id	theme	name
+5.1	organizational	Policies for information security
+5.2	organizational	Information security roles and responsibilities
+5.3	organizational	Segregation of duties
+5.4	organizational	Management responsibilities
+5.5	organizational	Contact with authorities
+5.6	organizational	Contact with special interest groups
+5.7	organizational	Threat intelligence
+5.8	organizational	Information security in project management
+5.9	organizational	Inventory of information and other associated assets
+5.10	organizational	Acceptable use of information and other associated assets
+5.11	organizational	Return of assets
+5.12	organizational	Classification of information
+5.13	organizational	Labelling of information
+5.14	organizational	Information transfer
+5.15	organizational	Access control
+5.16	organizational	Identity management
+5.17	organizational	Authentication information
+5.18	organizational	Access rights
+5.19	organizational	Information security in supplier relationships
+5.20	organizational	Addressing information security within supplier agreements
+5.21	organizational	Managing information security in the ICT supply chain
+5.22	organizational	Monitoring, review and change management of supplier services
+5.23	organizational	Information security for use of cloud services
+5.24	organizational	Information security incident management planning and preparation
+5.25	organizational	Assessment and decision on information security events
+5.26	organizational	Response to information security incidents
+5.27	organizational	Learning from information security incidents
+5.28	organizational	Collection of evidence
+5.29	organizational	Information security during disruption
+5.30	organizational	ICT readiness for business continuity
+5.31	organizational	Legal, statutory, regulatory and contractual requirements
+5.32	organizational	Intellectual property rights
+5.33	organizational	Protection of records
+5.34	organizational	Privacy and protection of PII
+5.35	organizational	Independent review of information security
+5.36	organizational	Compliance with policies, rules and standards for information security
+5.37	organizational	Documented operating procedures
+6.1	people	Screening
+6.2	people	Terms and conditions of employment
+6.3	people	Information security awareness, education and training
+6.4	people	Disciplinary process
+6.5	people	Responsibilities after termination or change of employment
+6.6	people	Confidentiality or non-disclosure agreements
+6.7	people	Remote working
+6.8	people	Information security event reporting
+7.1	physical	Physical security perimeters
+7.2	physical	Physical entry
+7.3	physical	Securing offices, rooms and facilities
+7.4	physical	Physical security monitoring
+7.5	physical	Protecting against physical and environmental threats
+7.6	physical	Working in secure areas
+7.7	physical	Clear desk and clear screen
+7.8	physical	Equipment siting and protection
+7.9	physical	Security of assets off-premises
+7.10	physical	Storage media
+7.11	physical	Supporting utilities
+7.12	physical	Cabling security
+7.13	physical	Equipment maintenance
+7.14	physical	Secure disposal or re-use of equipment
+8.1	technological	User endpoint devices
+8.2	technological	Privileged access rights
+8.3	technological	Information access restriction
+8.4	technological	Access to source code
+8.5	technological	Secure authentication
+8.6	technological	Capacity management
+8.7	technological	Protection against malware
+8.8	technological	Management of technical vulnerabilities
+8.9	technological	Configuration management
+8.10	technological	Information deletion
+8.11	technological	Data masking
+8.12	technological	Data leakage prevention
+8.13	technological	Information backup
+8.14	technological	Redundancy of information processing facilities
+8.15	technological	Logging
+8.16	technological	Monitoring activities
+8.17	technological	Clock synchronization
+8.18	technological	Use of privileged utility programs
+8.19	technological	Installation of software on operational systems
+8.20	technological	Networks security
+8.21	technological	Security of network services
+8.22	technological	Segregation of networks
+8.23	technological	Web filtering
+8.24	technological	Use of cryptography
+8.25	technological	Secure development life cycle
+8.26	technological	Application security requirements
+8.27	technological	Secure system architecture and engineering principles
+8.28	technological	Secure coding
+8.29	technological	Security testing in development and acceptance
+8.30	technological	Outsourced development
+8.31	technological	Separation of development, test and production environments
+8.32	technological	Change management
+8.33	technological	Test information
+8.34	technological	Protection of information systems during audit testing

@@ -1,0 +1,911 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Risk register to Jira: drift caught, every write on record</title>
+<meta name="description" content="Portfolio demo with synthetic data: a Python tool that keeps an ISO/IEC 27001:2022 risk register in Excel and the treatment work in Jira Cloud consistent. One owner per field, drift detection, idempotent sync, audit log, overdue report. Live run against a real Jira Cloud site.">
+<meta property="og:title" content="Risk register to Jira: drift caught, every write on record">
+<meta property="og:description" content="Excel risk register ↔ Jira Cloud. Field ownership, drift detection, audit log. 105 tests, live run recorded.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23fbfaf6'/%3E%3Cpath d='M7 17l5 5L25 9' stroke='%23c63b2f' stroke-width='3.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,500;0,8..60,650;1,8..60,500&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#f1f0ea;--sheet:#fbfaf6;--ink:#1c2024;--ink2:#40464d;--muted:#6b7077;--rule:#d8d5ca;--grid:#e6e3d8;
+  --pencil:#c63b2f;--reg:#2e6a4e;--reg-bg:#e3eee6;--jira:#2c5aa8;--jira-bg:#e2e9f6;--drift:#b9730f;--drift-bg:#f8e9cc;
+  --p1:#d9e6d3;--p2:#e9edc4;--p3:#f4d9a2;--p4:#eeb08a;--p5:#de8574;
+  --serif:'Source Serif 4',Georgia,serif;--sans:'Public Sans',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;--hand:'Caveat',cursive;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font:400 17px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+code,.mono{font-family:var(--mono);font-size:.86em}
+.wrap{max-width:1160px;margin:0 auto;padding:0 32px}
+@media (max-width:640px){.wrap{padding:0 16px}body{font-size:16px}}
+
+/* workpaper header strip */
+.wp{border-bottom:1px solid var(--rule);background:var(--sheet)}
+.wp .wrap{display:grid;grid-template-columns:auto 1fr auto;gap:28px;align-items:center;padding-top:14px;padding-bottom:14px;font:500 .7rem/1.35 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.wp b{color:var(--ink);font-weight:700}
+.wp .ref{border:1.5px solid var(--ink);padding:5px 9px;color:var(--ink);font-weight:700;letter-spacing:.1em}
+.wp nav{display:flex;gap:18px;justify-content:flex-end}
+.wp nav a{text-decoration:none;border-bottom:1px solid var(--rule)}
+.wp nav a:hover{border-color:var(--ink)}
+@media (max-width:820px){.wp .wrap{grid-template-columns:auto 1fr}.wp nav{display:none}}
+@media (max-width:640px){.wpx{display:none}.wp .wrap{gap:14px}}
+
+/* tickmarks */
+.tk{display:inline-flex;align-items:center;justify-content:center;min-width:1.25em;height:1.25em;padding:0 .18em;margin-left:.2em;font:700 .95em/1 var(--hand);color:var(--pencil);text-decoration:none;border-radius:50%;vertical-align:.05em;transition:background .2s}
+.tk:hover{background:rgba(198,59,47,.1)}
+.tk.c{font:700 .62em/1 var(--mono);border:1.5px solid var(--pencil);width:1.7em;height:1.7em;min-width:0;padding:0;vertical-align:.15em}
+.legend .tk.c{font-size:.72rem}
+.legend{display:flex;flex-wrap:wrap;gap:8px 22px;font-size:.82rem;color:var(--ink2);margin-top:26px;padding-top:16px;border-top:1px dashed var(--rule)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .tk{margin:0;font-size:1.25rem}
+
+/* hero */
+.hero{padding:56px 0 64px}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.08fr);gap:56px;align-items:start}
+@media (max-width:980px){.hero .wrap{grid-template-columns:1fr;gap:36px}}
+.kick{font:600 .74rem/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--pencil)}
+h1{font:650 clamp(2.15rem,4.4vw,3.4rem)/1.06 var(--serif);letter-spacing:-.02em;margin-top:14px}
+h1 .lo{color:var(--drift)}
+h1 .hi{color:var(--reg)}
+.lede{font-size:1.1rem;color:var(--ink2);margin-top:20px;max-width:34em}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;margin-top:28px;border-top:1.5px solid var(--ink)}
+.facts div{padding:11px 0;border-bottom:1px solid var(--rule);font-size:.9rem;color:var(--ink2)}
+.facts div:nth-child(odd){padding-right:14px}
+.facts b{display:block;font:650 1.35rem/1.15 var(--serif);color:var(--ink)}
+
+/* hero demo */
+.demo{background:var(--sheet);border:1px solid var(--rule);box-shadow:0 1px 0 var(--rule),0 18px 40px -28px rgba(28,32,36,.35);position:relative}
+.demo-h{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--rule);font:500 .68rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.demo-h .replay{background:none;border:1px solid var(--rule);font:inherit;color:var(--ink2);padding:4px 8px;cursor:pointer;letter-spacing:.06em}
+.demo-h .replay:hover{border-color:var(--ink)}
+.pane{padding:14px 14px 4px}
+.pane-l{display:flex;align-items:center;gap:8px;font:600 .68rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+.own{display:inline-block;font:600 .6rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:3px 5px;border-radius:2px}
+.own.r{background:var(--reg-bg);color:var(--reg)}
+.own.j{background:var(--jira-bg);color:var(--jira)}
+.xl{width:100%;border-collapse:collapse;font:400 .74rem/1.2 var(--mono);table-layout:fixed}
+.xl th{background:#eceae2;color:var(--muted);font-weight:500;text-align:left;padding:4px 6px;border:1px solid var(--grid)}
+.xl td{padding:6px;border:1px solid var(--grid);background:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xl td.sel{outline:2px solid var(--reg);outline-offset:-2px}
+.card{border:1px solid var(--rule);background:#fff;border-radius:3px;padding:12px 14px;display:grid;grid-template-columns:1fr auto;gap:6px 14px}
+.card .k{font:500 .72rem/1 var(--mono);color:var(--jira)}
+.card .t{grid-column:1/-1;font:600 .95rem/1.3 var(--sans)}
+.fl{grid-column:1/-1;display:grid;grid-template-columns:7.5em 1fr auto;align-items:center;gap:8px;font-size:.8rem;padding:5px 0;border-top:1px solid var(--grid)}
+.fl .n{color:var(--muted)}
+.pill{justify-self:start;font:600 .76rem/1 var(--mono);padding:4px 7px;border-radius:2px;position:relative;transition:background .35s,color .35s}
+.pill.hi{background:var(--p5);color:#3c120c}
+.pill.lo{background:var(--drift-bg);color:var(--drift)}
+.pill.stt{background:#e8e8e3;color:var(--ink2)}
+.labels{display:flex;flex-wrap:wrap;gap:4px}
+.labels i{font:400 .66rem/1 var(--mono);font-style:normal;background:#f0efe9;border:1px solid var(--grid);padding:3px 4px}
+.badge{font:700 .6rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:3px 5px;border-radius:2px;opacity:0;transition:opacity .3s}
+.badge.on{opacity:1}
+.badge.dr{background:var(--drift);color:#fff}
+.badge.ok{background:var(--reg);color:#fff}
+.cursor{position:absolute;left:0;top:0;width:18px;height:18px;pointer-events:none;opacity:0;transition:transform 1s cubic-bezier(.5,0,.2,1),opacity .3s;z-index:3}
+.term{margin:12px 14px 0;background:#1f2328;color:#d9dcd4;font:400 .72rem/1.55 var(--mono);padding:10px 12px;min-height:7.8em;white-space:pre-wrap;word-break:break-word;border-radius:2px}
+.term .p{color:#8fb79e}
+.term .w{color:#f0b44c}
+.term .g{color:#9bd1a9}
+.term .c{color:#8a9097}
+.tape{margin:10px 14px 14px;padding:9px 10px;border:1px dashed var(--rule);font:400 .7rem/1.5 var(--mono);color:var(--ink2);min-height:4.6em;position:relative;word-break:break-word}
+.tape .lab{display:block;color:var(--muted);font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+.cap{display:flex;gap:10px;align-items:baseline;padding:10px 14px;border-top:1px solid var(--rule);font-size:.86rem;color:var(--ink2);min-height:3.4em}
+.cap b{font:700 1.2rem/1 var(--hand);color:var(--pencil);min-width:1.1em}
+
+/* pencil ring */
+.ring{position:relative;display:inline-block}
+.rsvg{position:absolute;overflow:visible;pointer-events:none;z-index:2}
+.rsvg path{fill:none;stroke:var(--pencil);stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;opacity:0;transition:stroke-dashoffset .7s cubic-bezier(.55,.1,.3,1),opacity 0s .7s}
+.on>.rsvg path,.ringed>.rsvg path{stroke-dashoffset:0;opacity:1;transition:stroke-dashoffset .7s cubic-bezier(.55,.1,.3,1),opacity 0s}
+.warn>.rsvg path{stroke:var(--drift)}
+.note{font:700 1.15rem/1.1 var(--hand);color:var(--pencil);opacity:0;transform:translateY(4px);transition:opacity .4s .5s,transform .4s .5s}
+.note.on{opacity:1;transform:none}
+
+/* sections */
+section{padding:84px 0;border-top:1px solid var(--rule)}
+.sec-h{display:grid;grid-template-columns:120px minmax(0,1fr);gap:24px;margin-bottom:40px}
+.sec-h .no{font:600 .72rem/1.6 var(--mono);letter-spacing:.12em;color:var(--muted);text-transform:uppercase;padding-top:8px;border-top:1.5px solid var(--ink)}
+h2{font:650 clamp(1.7rem,3vw,2.35rem)/1.12 var(--serif);letter-spacing:-.015em;max-width:24em}
+.sec-h p{color:var(--ink2);margin-top:12px;max-width:40em}
+@media (max-width:720px){section{padding:60px 0}.sec-h{grid-template-columns:1fr;gap:10px}.sec-h .no{border:0;padding:0}}
+
+/* ownership */
+.ownx{display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr);gap:0;align-items:stretch;background:var(--sheet);border:1px solid var(--rule)}
+.side{padding:22px}
+.side h3{font:700 .74rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;margin-bottom:14px;display:flex;gap:8px;align-items:center}
+.side.r h3{color:var(--reg)}
+.side.j h3{color:var(--jira)}
+.side ul{list-style:none}
+.side li{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--grid);font-size:.92rem}
+.side li span:last-child{font:400 .74rem/1.6 var(--mono);color:var(--muted);text-align:right}
+.side li.ro span:last-child{color:var(--jira)}
+.mid{border-left:1px dashed var(--rule);border-right:1px dashed var(--rule);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;padding:20px 10px;text-align:center}
+.mid .arr{font:500 .7rem/1.3 var(--mono);color:var(--muted)}
+.mid svg{width:110px;height:24px;overflow:visible}
+.flow{stroke-dasharray:5 6;animation:flow 1.4s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-22}}
+@media (max-width:820px){.ownx{grid-template-columns:1fr}.mid{border:0;border-top:1px dashed var(--rule);border-bottom:1px dashed var(--rule);flex-direction:row;flex-wrap:wrap}}
+.rules{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;margin-top:30px}
+.rules div{font-size:.93rem;color:var(--ink2);padding-top:12px;border-top:1px solid var(--rule)}
+.rules b{display:block;color:var(--ink);font-weight:600;margin-bottom:4px}
+@media (max-width:820px){.rules{grid-template-columns:1fr}}
+.scale{margin-top:34px}
+.scale .bar{display:grid;grid-template-columns:3fr 4fr 7fr 5fr 6fr;height:34px;font:600 .72rem/34px var(--mono);text-align:center}
+.scale .bar div:nth-child(1){background:var(--p1)}.scale .bar div:nth-child(2){background:var(--p2)}.scale .bar div:nth-child(3){background:var(--p3)}.scale .bar div:nth-child(4){background:var(--p4)}.scale .bar div:nth-child(5){background:var(--p5)}
+.scale .ax{display:grid;grid-template-columns:3fr 4fr 7fr 5fr 6fr;font:400 .68rem/1.8 var(--mono);color:var(--muted)}
+.scale .cap2{font-size:.85rem;color:var(--muted);margin-top:6px}
+@media (max-width:640px){.scale .bar{font-size:.58rem}}
+
+/* live run: sticky stage */
+.run{display:grid;grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);gap:48px}
+.run>*{min-width:0}
+.steps .st{min-height:72vh;padding:22px 0 0;display:flex;flex-direction:column;justify-content:flex-start}
+.steps .st:last-child{min-height:56vh}
+.st .ts{font:500 .68rem/1 var(--mono);letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+.st h3{font:650 1.35rem/1.25 var(--serif);margin:10px 0 8px;transition:color .3s}
+.st p{color:var(--ink2);font-size:.95rem}
+.st ul{margin:10px 0 0 1.1em;color:var(--ink2);font-size:.92rem}
+.st .big{font:650 2.6rem/1 var(--serif);margin-top:14px;color:var(--ink)}
+.st .big small{font:400 .85rem/1 var(--sans);color:var(--muted);margin-left:8px}
+.steps .st{opacity:.35;transition:opacity .4s}
+.steps .st.cur{opacity:1}
+.stage{position:sticky;top:20px;height:calc(100vh - 40px);max-height:780px;display:flex;flex-direction:column;gap:10px;padding:16px 0}
+.stg-term{background:#1f2328;color:#d9dcd4;font:400 .7rem/1.5 var(--mono);padding:10px 12px;border-radius:2px;min-height:8.6em;white-space:pre-wrap;word-break:break-word}
+.stg-term .p{color:#8fb79e}.stg-term .w{color:#f0b44c}.stg-term .g{color:#9bd1a9}.stg-term .c{color:#8a9097}.stg-term .r{color:#f08a7c}
+.board{flex:none;background:var(--sheet);border:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+.board-h{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--rule);font:500 .66rem/1.2 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.board-h b{color:var(--ink)}
+.writes{font:700 .7rem/1 var(--mono);padding:4px 7px;background:var(--ink);color:var(--sheet);border-radius:2px;letter-spacing:.04em}
+.cols{display:grid;grid-template-columns:2.3fr 1fr 1fr;gap:0;min-height:0}
+.col{border-right:1px solid var(--grid);padding:8px;display:flex;flex-direction:column;min-height:0}
+.col:last-child{border:0}
+.col-h{font:600 .62rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between}
+.col-b{display:grid;gap:5px;align-content:start}
+.col.bk .col-b{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kc{position:relative;background:#fff;border:1px solid var(--grid);border-left:4px solid var(--pc,#ccc);padding:4px 5px;font:500 .64rem/1.25 var(--mono);color:var(--ink);transition:opacity .35s,transform .35s,background .35s,border-color .35s;min-width:0}
+.kc .sub{display:block;font-size:.56rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kc.hid{opacity:0;transform:translateY(-8px)}
+.kc.noop::after{content:'✓';position:absolute;right:4px;top:3px;color:var(--muted);font-size:.7rem}
+.kc.ed{background:var(--drift-bg)}
+.kc.ed .sub{color:var(--drift);font-weight:700}
+.kc.rs{background:var(--reg-bg)}
+.kc.rs .sub{color:var(--reg);font-weight:700}
+.kc.od{border-color:var(--pencil);box-shadow:0 0 0 1.5px var(--pencil)}
+.kc.od .sub{color:var(--pencil);font-weight:700}
+.kc.dim{opacity:.38}
+.chips{display:flex;flex-wrap:wrap;gap:6px;font:500 .64rem/1 var(--mono)}
+.chips span{border:1px solid var(--rule);background:var(--sheet);padding:5px 7px;color:var(--ink2)}
+.chips span b{color:var(--pencil)}
+@media (max-width:900px){
+  .run{grid-template-columns:1fr;gap:0}
+  .stage{order:-1;top:0;height:auto;max-height:none;padding:8px 0;background:var(--paper);z-index:5;border-bottom:1px solid var(--rule)}
+  .stg-term{min-height:0;font-size:.54rem;white-space:pre;overflow:hidden;padding:8px 10px}
+  .cols{grid-template-columns:2fr 1fr 1fr}
+  .col{padding:6px 5px}
+  .col-h{font-size:.54rem}
+  .col.bk .col-b{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+  .kc{font-size:.56rem;padding:3px 4px;border-left-width:3px}
+  .kc .sub{font-size:.48rem}
+  .kc:not(.ed):not(.rs):not(.od):not(.ringed) .sub{display:none}
+  .steps .st{min-height:62vh}
+  .chips{display:none}
+}
+
+/* validation gate */
+.gate{background:var(--sheet);border:1px solid var(--rule)}
+.gate-h{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 14px;border-bottom:1px solid var(--rule);font:500 .68rem/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.vt{border-collapse:collapse;font:400 .72rem/1.2 var(--mono);min-width:980px;width:100%}
+.vt th{background:#eceae2;color:var(--muted);font-weight:500;text-align:left;padding:5px 7px;border:1px solid var(--grid);white-space:nowrap}
+.vt th.rn,.vt td.rn{background:#eceae2;color:var(--muted);text-align:center;width:34px}
+.vt td{padding:6px 7px;border:1px solid var(--grid);background:#fff;white-space:nowrap;position:relative;transition:background .35s}
+.vt td.empty{color:#b8b5ab}
+.vt td.bad{background:#fbe4e0}
+.vt td.warn{background:var(--drift-bg)}
+.gate-b{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:0;border-top:1px solid var(--rule)}
+.elist{list-style:none;padding:12px 14px;font:400 .72rem/1.45 var(--mono);max-height:330px;overflow:auto}
+.elist li{display:grid;grid-template-columns:4.6em 1fr;gap:8px;padding:4px 0;border-bottom:1px dotted var(--grid);opacity:0;transform:translateX(-6px);transition:opacity .3s,transform .3s}
+.elist li.on{opacity:1;transform:none}
+.elist li .r{color:var(--muted)}
+.elist li.e .m{color:#8e2a20}
+.elist li.w .m{color:var(--drift)}
+.verdict{border-left:1px solid var(--rule);padding:22px;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.verdict .cnt{font:650 1.15rem/1.4 var(--serif)}
+.verdict .cnt b{font-size:2rem;display:inline-block;min-width:1.4em}
+.stamp{align-self:flex-start;font:700 1.05rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--pencil);border:3px solid var(--pencil);padding:10px 14px;transform:rotate(-4deg) scale(1.6);opacity:0;transition:transform .35s cubic-bezier(.3,1.6,.5,1),opacity .2s}
+.stamp.on{transform:rotate(-4deg) scale(1);opacity:.92}
+.verdict small{color:var(--muted);font-size:.82rem}
+@media (max-width:820px){.gate-b{grid-template-columns:1fr}.verdict{border-left:0;border-top:1px solid var(--rule)}}
+
+/* heat map */
+.heat{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:start}
+@media (max-width:900px){.heat{grid-template-columns:1fr;gap:40px}}
+.hm-tog{display:inline-flex;border:1.5px solid var(--ink);margin-bottom:16px}
+.hm-tog button{font:600 .72rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:9px 14px;background:none;border:0;cursor:pointer;color:var(--ink)}
+.hm-tog button.on{background:var(--ink);color:var(--sheet)}
+.hm-wrap{display:grid;grid-template-columns:22px minmax(0,1fr);grid-template-rows:minmax(0,1fr) 22px;gap:4px;max-width:470px}
+.hm-y{writing-mode:vertical-rl;transform:rotate(180deg);font:500 .62rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:center}
+.hm-x{grid-column:2;font:500 .62rem/22px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);text-align:center}
+.hm{position:relative;aspect-ratio:1;display:grid;grid-template-columns:repeat(5,1fr);grid-template-rows:repeat(5,1fr);gap:3px}
+.hm .cell{position:relative;border-radius:2px}
+.hm .cell i{position:absolute;right:5px;bottom:3px;font:500 .58rem/1 var(--mono);font-style:normal;color:rgba(28,32,36,.45)}
+.hm .cnt{position:absolute;left:6px;top:5px;font:700 .82rem/1 var(--mono);color:rgba(28,32,36,.8);transition:opacity .3s}
+.dot{position:absolute;border-radius:50%;background:var(--ink);border:1.5px solid var(--sheet);transition:left .95s cubic-bezier(.6,0,.25,1),top .95s cubic-bezier(.6,0,.25,1);z-index:2;cursor:default}
+.dot.acc{background:var(--sheet);border:2px solid var(--ink)}
+.hm-key{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:var(--muted);margin-top:14px}
+.hm-key span{display:inline-flex;align-items:center;gap:6px}
+.hm-key em{width:10px;height:10px;border-radius:50%;background:var(--ink);display:inline-block}
+.hm-key em.a{background:var(--sheet);border:2px solid var(--ink)}
+.hm-tip{min-height:1.6em;font:400 .78rem/1.5 var(--mono);color:var(--ink2);margin-top:6px}
+.side-stats h3{font:650 1.2rem/1.3 var(--serif);margin-bottom:12px}
+.tbars{margin-bottom:36px}
+.tbar{display:grid;grid-template-columns:7.2em minmax(0,1fr) 3.4em;gap:10px;align-items:center;font-size:.86rem;padding:5px 0}
+.tbar .tr{height:14px;background:#e9e7df;position:relative}
+.tbar .fill{position:absolute;inset:0 auto 0 0;width:0;background:var(--ink);transition:width 1.1s cubic-bezier(.3,0,.2,1)}
+.tbar .v{font:600 .8rem/1 var(--mono);text-align:right}
+.tbar.c .fill{background:var(--jira)}
+.covnote{font-size:.85rem;color:var(--muted);margin-top:10px}
+
+/* notes */
+.notes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;border-top:1.5px solid var(--ink)}
+.notes article{padding:24px 26px 26px 0;border-bottom:1px solid var(--rule)}
+.notes article:nth-child(even){padding:24px 0 26px 26px;border-left:1px solid var(--rule)}
+.notes h3{font:650 1.12rem/1.3 var(--serif);margin-bottom:8px;display:flex;gap:10px;align-items:baseline}
+.notes h3 .n{font:700 1.35rem/1 var(--hand);color:var(--pencil)}
+.notes p{font-size:.93rem;color:var(--ink2)}
+.notes .ev{margin-top:10px;font:400 .7rem/1.5 var(--mono);color:var(--muted)}
+.notes .ev a{color:var(--jira);text-decoration:none;border-bottom:1px solid var(--jira-bg)}
+@media (max-width:820px){.notes{grid-template-columns:1fr}.notes article,.notes article:nth-child(even){padding:22px 0;border-left:0}}
+
+/* footer */
+.foot{background:var(--sheet);border-top:1.5px solid var(--ink);padding:54px 0 70px}
+.foot .wrap{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:48px}
+.foot h2{font-size:1.6rem}
+.foot p{color:var(--ink2);margin-top:12px;font-size:.95rem}
+.links{display:flex;flex-direction:column;border-top:1px solid var(--rule)}
+.links a{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid var(--rule);text-decoration:none;font-weight:500}
+.links a span{font:400 .74rem/1.6 var(--mono);color:var(--muted)}
+.links a:hover{color:var(--pencil)}
+.sig{margin-top:26px;font:700 1.5rem/1 var(--hand);color:var(--pencil)}
+.sig small{display:block;font:400 .75rem/1.6 var(--mono);color:var(--muted);margin-top:6px}
+@media (max-width:820px){.foot .wrap{grid-template-columns:1fr;gap:30px}}
+
+.rv{opacity:0;transform:translateY(14px);transition:opacity .7s,transform .7s}
+.rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-duration:0s!important;animation:none!important;scroll-behavior:auto!important}
+  .rv{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+
+<header class="wp">
+  <div class="wrap">
+    <span class="ref">WP · RR-01</span>
+    <span><b>risk-register-jira-sync</b><span class="wpx"> · prepared by Elmar Guliyev · synthetic data, fictional “Larkspur Payments”</span></span>
+    <nav><a href="#run">Live run</a><a href="#gate">Validation</a><a href="#report">Report</a><a href="https://github.com/kulieff21/risk-register-jira-sync">GitHub</a></nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <div>
+      <div class="kick">Python · Jira Cloud · ISO/IEC 27001:2022</div>
+      <h1>The register said <span class="hi">Highest</span>. Someone in Jira typed <span class="lo">Low</span>.</h1>
+      <p class="lede">A GRC team keeps its risk register in Excel; the treatment work happens in Jira. This tool keeps the two consistent: every field has one owner, a hand edit on the wrong side is caught as <b>drift</b> before it is overwritten, and every write lands in an audit log with the value it replaced.</p>
+      <div class="facts">
+        <div><b>24 → 0</b>writes on the first and the second live run<a class="tk c" href="#run" title="Observed in the live Jira run">L</a></div>
+        <div><b>2 of 2</b>hand edits caught as drift, status moves left alone<a class="tk" href="#run" title="Agreed to the audit log">✓</a></div>
+        <div><b>105</b>offline tests: fake Jira + a local HTTP server<a class="tk c" href="https://github.com/kulieff21/risk-register-jira-sync/tree/f48ba78f796e96630155f257f499f1d9a7343665/tests" title="Covered by tests">T</a></div>
+        <div><b>10 + 2</b>validation rules; sync refuses on any error<a class="tk c" href="#gate" title="Covered by tests">T</a></div>
+      </div>
+      <div class="legend">
+        <span><span class="tk">✓</span> agreed to the audit log in <code>results/audit/</code></span>
+        <span><span class="tk c">L</span> observed in the live Jira run</span>
+        <span><span class="tk c">T</span> covered by an offline test</span>
+      </div>
+    </div>
+
+    <div class="demo" id="demo" aria-label="Animated example: a priority edited by hand in Jira is detected as drift and restored from the register">
+      <div class="demo-h"><span>R-005 · one risk, two tools</span><button class="replay" id="replay" type="button">↻ replay</button></div>
+      <svg class="cursor" id="cur" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 1l13 7-6 1.6L6.4 16z" fill="#1c2024" stroke="#fff" stroke-width="1.2"/></svg>
+      <div class="pane">
+        <div class="pane-l" style="color:var(--reg)">register.xlsx <span class="own r">source of truth for content</span></div>
+        <table class="xl">
+          <colgroup><col style="width:13%"><col><col style="width:7%"><col style="width:7%"><col style="width:10%"><col style="width:21%"></colgroup>
+          <tr><th>risk_id</th><th>title</th><th>L</th><th>I</th><th>L×I</th><th>due_date</th></tr>
+          <tr><td>R-005</td><td>Phishing leads to credential theft</td><td>5</td><td>4</td><td id="xs">20</td><td>2026-10-31</td></tr>
+        </table>
+      </div>
+      <div class="pane">
+        <div class="pane-l" style="color:var(--jira)">Jira · project RISK</div>
+        <div class="card">
+          <span class="k">RISK-5</span><span class="badge" id="bdg">drift</span>
+          <div class="t">[R-005] Phishing leads to credential theft</div>
+          <div class="fl"><span class="n">Priority</span><span><span class="pill hi" id="prio">Highest</span></span><span class="own r">register</span></div>
+          <div class="fl"><span class="n">Due date</span><span class="mono">2026-10-31</span><span class="own r">register</span></div>
+          <div class="fl"><span class="n">Status</span><span><span class="pill stt">Backlog</span></span><span class="own j">Jira</span></div>
+          <div class="fl"><span class="n">Labels</span><span class="labels"><i>grc-risk</i><i>risk-R-005</i><i>treatment-mitigate</i><i>ctrl-6.3</i><i>ctrl-8.5</i><i>ctrl-8.7</i></span><span class="own r">register</span></div>
+        </div>
+      </div>
+      <div class="term" id="term" aria-live="off"></div>
+      <div class="tape"><span class="lab">audit log · one line per write</span><span id="tape"></span></div>
+      <div class="cap"><b id="capn">1</b><span id="capt">In sync. The register owns priority (score 20 → Highest); Jira owns status.</span></div>
+    </div>
+  </div>
+</div>
+
+<section id="own">
+  <div class="wrap">
+    <div class="sec-h rv">
+      <div class="no">01 · the rule</div>
+      <div>
+        <h2>Every field has exactly one owner. The owner’s value wins.</h2>
+        <p>Two-way sync between a spreadsheet and a ticket system usually means “last write wins”, and nobody can say afterwards which number was true. Here the split is fixed in the design: the register owns what the risk <i>is</i>, Jira owns how the work is <i>going</i>.</p>
+      </div>
+    </div>
+    <div class="ownx rv">
+      <div class="side r">
+        <h3>Excel register <span class="own r">owns</span></h3>
+        <ul>
+          <li><span>Summary</span><span>[R-001] title</span></li>
+          <li><span>Description</span><span>asset, threat, scores, controls, plan</span></li>
+          <li><span>Priority</span><span>from inherent score</span></li>
+          <li><span>Due date</span><span>treatment deadline</span></li>
+          <li><span>Labels</span><span>grc-risk, risk-*, treatment-*, ctrl-*</span></li>
+        </ul>
+      </div>
+      <div class="mid">
+        <span class="arr">writes →</span>
+        <svg viewBox="0 0 110 24" aria-hidden="true"><path class="flow" d="M2 7H100" stroke="#2e6a4e" stroke-width="2"/><path d="M96 3l6 4-6 4" fill="none" stroke="#2e6a4e" stroke-width="2"/><path class="flow" d="M108 18H10" stroke="#2c5aa8" stroke-width="2"/><path d="M14 14l-6 4 6 4" fill="none" stroke="#2c5aa8" stroke-width="2"/></svg>
+        <span class="arr">← reads</span>
+      </div>
+      <div class="side j">
+        <h3>Jira issue <span class="own j">owns</span></h3>
+        <ul>
+          <li class="ro"><span>Status</span><span>read only</span></li>
+          <li class="ro"><span>Resolution date</span><span>read only</span></li>
+          <li><span>Labels added by hand</span><span>kept, never removed</span></li>
+        </ul>
+        <p style="font-size:.85rem;color:var(--muted);margin-top:14px">Status moves are normal work, not drift. “Done” is decided by the status <i>category</i>, not by the status name.</p>
+      </div>
+    </div>
+    <div class="rules rv">
+      <div><b>Found by label, not by title</b>Each risk’s issue carries the exact label <code>risk-R-001</code>. Renaming a risk does not create a second issue, and the register stores no Jira keys.</div>
+      <div><b>Drift is shown, then overwritten</b>A hand edit to a register-owned field appears in the dry run. On <code>--apply</code> the register wins and the audit log keeps the Jira value it replaced.</div>
+      <div><b>Never deletes, never picks</b>Two issues with the same risk label are a conflict: skipped and reported. An issue whose risk left the register is an orphan: reported, never closed.</div>
+    </div>
+    <div class="scale rv">
+      <div class="bar"><div>Lowest</div><div>Low</div><div>Medium</div><div>High</div><div>Highest</div></div>
+      <div class="ax"><div>1–3</div><div>4–7</div><div>8–14</div><div>15–19</div><div>20–25</div></div>
+      <div class="cap2">Jira priority from the inherent score, likelihood × impact (1–5 × 1–5). The same colours are used in the heat map below.</div>
+    </div>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <div class="sec-h rv">
+      <div class="no">02 · live run</div>
+      <div>
+        <h2>One evening on a real Jira Cloud site, step by step.</h2>
+        <p>Company-managed Kanban project <code>RISK</code>, 24 synthetic risks, 7 Oct 2026 21:51–21:58 UTC (8 Oct in Baku). The terminal lines are the tool’s own output format; the write counts and before/after values are taken from the three audit files.</p>
+      </div>
+    </div>
+    <div class="run">
+      <div class="steps" id="steps">
+        <div class="st" data-s="0">
+          <span class="ts">step 1 · setup</span>
+          <h3>Credentials checked, project created through the API</h3>
+          <p><code>rrsync setup</code> calls <code>/myself</code>, looks for the project and creates it when the account is a Jira admin; otherwise it prints what to create by hand. The token is read from a file outside the repo and never printed.</p>
+        </div>
+        <div class="st" data-s="1">
+          <span class="ts">step 2 · 21:51:02 UTC</span>
+          <h3>First apply: one issue per risk</h3>
+          <p>Validation passes (0 errors, 1 warning: R-017 accepts a score of 16), the plan says create 24, and every write gets an audit line.</p>
+          <div class="big">24<small>writes</small><a class="tk" href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/audit/20261007T215102Z.jsonl" title="Agreed to the audit log: 1 header + 24 write lines">✓</a></div>
+        </div>
+        <div class="st" data-s="2">
+          <span class="ts">step 3 · 21:51:47 UTC</span>
+          <h3>Same register, run again: nothing to do</h3>
+          <p>Nothing changed on either side, so every risk is a no-op. The audit file holds only its header line. Running the sync twice is safe.</p>
+          <div class="big">0<small>writes, 24 no-op</small><a class="tk" href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/audit/20261007T215147Z.jsonl" title="Agreed to the audit log: header line only">✓</a></div>
+        </div>
+        <div class="st" data-s="3">
+          <span class="ts">step 4 · by hand in Jira</span>
+          <h3>A person works the board, and edits what they should not</h3>
+          <ul>
+            <li>RISK-1 moved to Done, RISK-6 to In Progress (normal work)</li>
+            <li>RISK-5 priority changed Highest → <b>Low</b></li>
+            <li>RISK-13 due date changed 2026-11-30 → <b>2026-12-03</b></li>
+            <li>a <code>test</code> label added to an issue</li>
+          </ul>
+        </div>
+        <div class="st" data-s="4">
+          <span class="ts">step 5 · dry run</span>
+          <h3>The plan names exactly the two edited fields</h3>
+          <p>Drift is measured against the values the tool wrote last time (<code>out/state.json</code>), so it can tell a hand edit from a register change. The two status moves are Jira’s own field: not drift. The hand-added label is not an owned label: not drift.</p>
+          <div class="big">2<small>drift, 22 no-op</small><a class="tk" href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/audit/20261007T215842Z.jsonl" title="Plan counts in the next run's audit header: drift 2, noop 22">✓</a></div>
+        </div>
+        <div class="st" data-s="5">
+          <span class="ts">step 6 · 21:58:42 UTC</span>
+          <h3>Apply: the register wins, the old values stay on record</h3>
+          <p>Two writes, both HTTP 204. The audit lines keep what Jira had (<code>Low</code>, <code>2026-12-03</code>). The status moves and the <code>test</code> label survived.</p>
+          <div class="big">2<small>writes</small><a class="tk" href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/audit/20261007T215842Z.jsonl" title="Agreed to the audit log: before Low / 2026-12-03">✓</a></div>
+        </div>
+        <div class="st" data-s="6">
+          <span class="ts">step 7 · report, --today 2026-10-08</span>
+          <h3>Four treatments are overdue. R-001 is past due too, but it is Done.</h3>
+          <p>The report reads Jira without writing. Five treatments have a due date before the report date; R-001 is excluded because its issue is in a done-category status. Jira named that status “Tamam” (the account’s interface is Turkish); the tool checks the category, so the language changed nothing.</p>
+          <div class="big">4<small>overdue</small><a class="tk c" href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/live-2026-10-08-report.md" title="Live report file">L</a></div>
+        </div>
+      </div>
+      <div class="stage" id="stage" aria-hidden="true">
+        <div class="stg-term" id="sterm"></div>
+        <div class="board">
+          <div class="board-h"><span><b>RISK</b> board · <span id="bcount">0</span> issues</span><span class="writes" id="bwrites">writes 0</span></div>
+          <div class="cols">
+            <div class="col bk"><div class="col-h"><span>Backlog</span><span id="n-bk">0</span></div><div class="col-b" id="c-bk"></div></div>
+            <div class="col ip"><div class="col-h"><span>In Progress</span><span id="n-ip">0</span></div><div class="col-b" id="c-ip"></div></div>
+            <div class="col dn"><div class="col-h"><span>Done</span><span id="n-dn">0</span></div><div class="col-b" id="c-dn"></div></div>
+          </div>
+        </div>
+        <div class="chips" id="chips"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="gate">
+  <div class="wrap">
+    <div class="sec-h rv">
+      <div class="no">03 · the gate</div>
+      <div>
+        <h2>A broken register never reaches Jira.</h2>
+        <p>Validation runs before every sync and collects <i>all</i> problems with their sheet row, not just the first one. This is <code>examples/register-with-errors.xlsx</code>, a test file with one mistake per row; the messages below are the tool’s actual output.</p>
+      </div>
+    </div>
+    <div class="gate rv" id="gatebox">
+      <div class="gate-h"><span>register-with-errors.xlsx · sheet “Risks”</span><span>asset / threat / vulnerability columns hidden for width</span></div>
+      <div class="scroll"><table class="vt" id="vt"></table></div>
+      <div class="gate-b">
+        <ul class="elist" id="elist"></ul>
+        <div class="verdict">
+          <div class="cnt"><b id="ce">0</b> errors · <b id="cw" style="color:var(--drift)">0</b> warnings</div>
+          <div class="stamp" id="stamp">sync refused</div>
+          <small>Errors block the sync. Warnings do not: a high score being accepted and a mitigation that leaves the score unchanged are flagged for a human to check. A 2013-style control ID gets a hint to use the 2022 numbering.</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="report">
+  <div class="wrap">
+    <div class="sec-h rv">
+      <div class="no">04 · the report</div>
+      <div>
+        <h2>Where the 24 risks sit before and after treatment.</h2>
+        <p>Each dot is one risk from the register. Press <b>Residual</b> to see where each one is expected to land once its treatment plan is done. The three accepted risks do not move: accepting a risk changes nothing about its score.</p>
+      </div>
+    </div>
+    <div class="heat">
+      <div class="rv">
+        <div class="hm-tog" role="tablist"><button type="button" class="on" data-m="inh">Inherent</button><button type="button" data-m="res">Residual</button></div>
+        <div class="hm-wrap">
+          <div class="hm-y">impact →</div>
+          <div class="hm" id="hm"></div>
+          <div class="hm-x">likelihood →</div>
+        </div>
+        <div class="hm-key"><span><em></em>mitigate / transfer / avoid</span><span><em class="a"></em>accept</span></div>
+        <div class="hm-tip" id="hmtip">Hover or tap a dot to see the risk.</div>
+      </div>
+      <div class="side-stats rv">
+        <h3>Treatments</h3>
+        <div class="tbars" id="tbars"></div>
+        <h3>Annex A coverage<a class="tk c" href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/live-2026-10-08-report.md" title="Live report file">L</a></h3>
+        <div class="tbars" id="cbars"></div>
+        <p class="covnote">How many of the 93 ISO/IEC 27001:2022 Annex A controls at least one risk references, per theme. The list of 93 IDs ships with the tool, so a control that does not exist is a validation error, not a silent typo.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="notes">
+  <div class="wrap">
+    <div class="sec-h rv">
+      <div class="no">05 · details</div>
+      <div>
+        <h2>The small decisions that make it safe to run twice.</h2>
+        <p>Each note links to the test that pins the behaviour down.</p>
+      </div>
+    </div>
+    <div class="notes rv">
+      <article>
+        <h3><span class="n">a</span>A lost response does not create a duplicate</h3>
+        <p>If Jira creates the issue but the response never arrives, the next run finds the issue by its <code>risk-R-NNN</code> label and updates it instead of creating another.</p>
+        <div class="ev"><a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_sync.py#L70">test_lost_create_response_does_not_duplicate</a></div>
+      </article>
+      <article>
+        <h3><span class="n">b</span>Creates are not retried on 5xx</h3>
+        <p>Reads and updates retry on 429 (honouring <code>Retry-After</code>) and 5xx, at most five attempts. A create is not retried on 5xx, because a server error after the write would turn one issue into two. Found in review; two tests added.</p>
+        <div class="ev"><a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_http_client.py#L102">test_create_is_not_retried_on_5xx</a> · <a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_http_client.py#L74">test_429_retry_after_then_success</a></div>
+      </article>
+      <article>
+        <h3><span class="n">c</span>Done means the status category</h3>
+        <p>Jira returns status names in the user’s interface language; the live site answered “Backlog”, “Devam Ediyor”, “Tamam”. Overdue logic reads the status category (<code>done</code>), so a name check that would have silently broken was never written.</p>
+        <div class="ev"><a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_report.py#L28">test_overdue_logic_uses_status_category</a></div>
+      </article>
+      <article>
+        <h3><span class="n">d</span>Pagination cannot loop forever</h3>
+        <p>Search uses <code>POST /rest/api/3/search/jql</code> with <code>nextPageToken</code>. Community reports describe the token repeating; the client stops with an error when a token or an issue key repeats, or after a page cap.</p>
+        <div class="ev"><a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_http_client.py#L176">test_search_repeating_token_is_an_error</a> · <a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_http_client.py#L183">…_repeating_issue_…</a></div>
+      </article>
+      <article>
+        <h3><span class="n">e</span>Conflicts are skipped, orphans are left alone</h3>
+        <p>Two issues with the same risk label: the risk is skipped and the run exits 1. An issue whose risk is gone from the register is reported and never closed or deleted.</p>
+        <div class="ev"><a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_sync.py#L165">test_duplicate_label_is_conflict_skipped_exit_1</a> · <a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_sync.py#L178">test_orphan_reported_and_untouched</a></div>
+      </article>
+      <article>
+        <h3><span class="n">f</span>The token never reaches a log</h3>
+        <p>Credentials come from environment variables or a file outside the repo. Error messages, connection errors and the audit file are tested for the token string.</p>
+        <div class="ev"><a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_http_client.py#L137">test_token_never_in_error_text</a> · <a href="https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/tests/test_http_client.py#L150">test_token_not_in_connection_error</a></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap">
+    <div>
+      <h2>How it was built</h2>
+      <p>The contract came first: <code>DESIGN.md</code> fixes field ownership, identity, the ten validation rules, the report and the audit format before any code. Behaviour that differs from it is a bug. Built with AI assistance and reviewed by a human; the live run was done by hand against a real Jira Cloud site.</p>
+      <p>Demo project with synthetic data. “Larkspur Payments” and every person and e-mail in the register are fictional (<code>.example</code> domains). MIT licence.</p>
+      <div class="sig">Elmar Guliyev<small>Python 3.12 · openpyxl · Jira Cloud REST API v3 · pytest</small></div>
+    </div>
+    <div class="links">
+      <a href="https://github.com/kulieff21/risk-register-jira-sync">Source code <span>github.com/kulieff21 →</span></a>
+      <a href="https://github.com/kulieff21/risk-register-jira-sync/blob/main/DESIGN.md">The contract <span>DESIGN.md →</span></a>
+      <a href="https://github.com/kulieff21/risk-register-jira-sync/tree/main/results">Live run evidence <span>results/ →</span></a>
+      <a href="https://github.com/kulieff21/risk-register-jira-sync/tree/main/tests">105 tests <span>tests/ →</span></a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(() => {
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+function ring(el, seed, sw = 2) {
+  if (el.querySelector(':scope>.rsvg')) return;
+  const px = 7, py = 6, w = el.offsetWidth + px * 2, h = el.offsetHeight + py * 2;
+  const rnd = k => { const x = Math.sin(seed * 12.9898 + k * 78.233) * 43758.5453; return x - Math.floor(x); };
+  const cx = w / 2, cy = h / 2, rx = w / 2 - 2, ry = h / 2 - 2, pts = [];
+  const a0 = Math.PI * (1.05 + rnd(1) * .15), N = 22;
+  for (let i = 0; i <= N; i++) {
+    const a = a0 + (i / N) * Math.PI * 2.18, k = 1 + (rnd(i + 3) - .5) * .07 + (i / N) * .05;
+    pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+  }
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+    d += ` C${c1[0].toFixed(1)} ${c1[1].toFixed(1)},${c2[0].toFixed(1)} ${c2[1].toFixed(1)},${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  el.insertAdjacentHTML('beforeend', `<svg class="rsvg" aria-hidden="true" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="left:${-px}px;top:${-py}px"><path pathLength="1" stroke-width="${sw}" d="${d}"/></svg>`);
+  el.getBoundingClientRect();
+}
+
+/* data: examples/register.xlsx (24 synthetic risks) */
+const R = [
+ ['R-001','Leaver accounts not disabled',4,4,2,3,'mitigate','2026-09-15','5.18, 6.5, 5.16'],
+ ['R-002','No periodic user access review',3,4,2,3,'mitigate','2026-11-30','5.15, 5.18, 8.2'],
+ ['R-003','Shared administrator accounts',4,4,2,3,'mitigate','2026-12-15','5.16, 5.17, 8.2'],
+ ['R-004','Excessive privileges in the core payment system',3,5,2,4,'mitigate','2027-01-31','5.15, 8.2, 5.3'],
+ ['R-005','Phishing leads to credential theft',5,4,3,3,'mitigate','2026-10-31','6.3, 8.5, 8.7'],
+ ['R-006','Unpatched VPN appliance',4,5,2,3,'mitigate','2026-09-30','8.8, 8.9, 8.20'],
+ ['R-007','Backups never restore-tested',3,5,2,3,'mitigate','2026-11-15','8.13, 5.30'],
+ ['R-008','Ransomware on file servers and endpoints',3,5,2,4,'mitigate','2027-02-28','8.7, 8.13, 8.22'],
+ ['R-009','Cloud storage misconfiguration',3,4,1,4,'mitigate','2026-10-20','5.23, 8.9'],
+ ['R-010','Third-party payment processor outage',3,4,3,3,'transfer','2027-01-15','5.19, 5.22, 5.30'],
+ ['R-011','Weak security terms in vendor contracts',3,3,2,2,'mitigate','2026-12-31','5.19, 5.20, 5.22'],
+ ['R-012','Missing logging and monitoring',4,4,2,3,'mitigate','2027-03-15','8.15, 8.16, 8.17'],
+ ['R-013','Insecure code in the merchant portal',4,4,2,3,'mitigate','2026-11-30','8.28, 8.25, 8.29'],
+ ['R-014','Test environments hold real card data',3,5,1,1,'avoid','2026-09-01','8.33, 8.11'],
+ ['R-015','Lost or stolen laptops',3,3,1,3,'mitigate','2026-10-05','8.1, 7.9, 8.24'],
+ ['R-016','Insider fraud through missing segregation of duties',2,5,1,5,'mitigate','2026-12-01','5.3, 5.15'],
+ ['R-017','Distributed denial of service',4,4,4,4,'accept','','8.20, 8.6'],
+ ['R-018','Weak cryptographic key management',2,5,1,4,'mitigate','2027-02-15','8.24'],
+ ['R-019','Personal data kept longer than needed',4,3,2,2,'mitigate','2027-01-31','5.34, 8.10, 5.33'],
+ ['R-020','No incident response plan',4,4,2,3,'mitigate','2026-10-15','5.24, 5.25, 5.26'],
+ ['R-021','Change management bypassed',3,4,2,3,'mitigate','2026-11-20','8.32'],
+ ['R-022','Uncontrolled access to the server room',2,4,1,3,'mitigate','2026-08-31','7.2, 7.3'],
+ ['R-023','Misuse of privileged utility programs',2,3,2,3,'accept','','8.18'],
+ ['R-024','Clock drift breaks log correlation',2,2,2,2,'accept','','8.17'],
+];
+const PRI = s => s >= 20 ? ['Highest', 'var(--p5)'] : s >= 15 ? ['High', 'var(--p4)'] : s >= 8 ? ['Medium', 'var(--p3)'] : s >= 4 ? ['Low', 'var(--p2)'] : ['Lowest', 'var(--p1)'];
+
+/* ---------- reveal ---------- */
+const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .12 });
+document.querySelectorAll('.rv').forEach(el => io.observe(el));
+
+/* ---------- hero loop (values from results/audit/20261007T215842Z.jsonl) ---------- */
+const term = $('#term'), tape = $('#tape'), prio = $('#prio'), bdg = $('#bdg'), cur = $('#cur'), demo = $('#demo');
+let run = 0;
+async function typeLine(el, html, plain, id, speed = 16) {
+  const span = document.createElement('div'); el.appendChild(span);
+  if (RM) { span.innerHTML = html; return; }
+  for (let i = 1; i <= plain.length; i++) { if (id !== run) return; span.textContent = plain.slice(0, i); await sleep(speed); }
+  span.innerHTML = html;
+}
+function out(el, html) { const d = document.createElement('div'); d.innerHTML = html; el.appendChild(d); }
+function setCap(n, t) { $('#capn').textContent = n; $('#capt').textContent = t; }
+function moveCursor(target, dx = 0, dy = 0) {
+  const a = demo.getBoundingClientRect(), b = target.getBoundingClientRect();
+  cur.style.transform = `translate(${b.left - a.left + b.width / 2 + dx}px, ${b.top - a.top + b.height / 2 + dy}px)`;
+}
+function heroReset() {
+  term.innerHTML = ''; tape.innerHTML = ''; bdg.className = 'badge'; bdg.textContent = 'drift';
+  prio.className = 'pill hi'; prio.textContent = 'Highest'; cur.style.opacity = 0;
+  setCap(1, 'In sync. The register owns priority (score 20 → Highest); Jira owns status.');
+}
+const AUDIT = '{"action": "update", "changes": {"priority": {"after": "Highest", "before": <span class="ring" id="tring">"Low"</span>}}, "drift": true, "drift_fields": ["priority"], "http_status": 204, "key": "RISK-5", "ok": true, "risk_id": "R-005", "type": "write"} <span class="note" id="tnote">← the overwritten value stays on record</span>';
+function heroFinal() {
+  term.innerHTML = '<div><span class="p">$</span> rrsync sync examples/register.xlsx --project RISK --apply</div><div class="w">DRIFT    R-005  RISK-5  fields: priority</div><div class="w">           drift in priority: Jira has \'Low\', register wins</div><div class="c">…</div><div class="g">Applied: 2 writes. Audit log: out/audit/20261007T215842Z.jsonl</div>';
+  tape.innerHTML = AUDIT; ring($('#tring'), 3); $('#tring').classList.add('on'); $('#tnote').classList.add('on');
+  bdg.className = 'badge ok on'; bdg.textContent = 'restored';
+  setCap('✓', 'Register wins. Status was never touched; the Jira value it replaced is in the audit log.');
+}
+async function hero() {
+  const id = ++run;
+  heroReset();
+  if (RM) { heroFinal(); return; }
+  await sleep(2200); if (id !== run) return;
+  cur.style.transition = 'none'; moveCursor($('#xs'), 30, 30); await sleep(30);
+  cur.style.transition = ''; cur.style.opacity = 1; moveCursor(prio, 4, 4);
+  setCap(2, 'Someone edits the priority by hand in Jira.');
+  await sleep(1150); if (id !== run) return;
+  prio.className = 'pill lo'; prio.textContent = 'Low';
+  await sleep(900); if (id !== run) return;
+  cur.style.opacity = 0;
+  setCap(3, 'Dry run. The plan compares Jira with what the tool wrote last time and names the drift.');
+  await typeLine(term, '<span class="p">$</span> rrsync sync examples/register.xlsx --project RISK', '$ rrsync sync examples/register.xlsx --project RISK', id);
+  if (id !== run) return; await sleep(350);
+  out(term, '<span class="w">DRIFT    R-005  RISK-5  fields: priority</span>');
+  out(term, '<span class="w">           drift in priority: Jira has \'Low\', register wins</span>');
+  bdg.className = 'badge dr on';
+  await sleep(260); out(term, '<span class="c">plan: create 0, update 0, drift 2, noop 22, conflict 0, orphan 0</span>');
+  await sleep(220); out(term, '<span class="c">Dry run: no changes made. Use --apply to write.</span>');
+  await sleep(2300); if (id !== run) return;
+  term.innerHTML = '';
+  setCap(4, 'Apply. The register wins; the write goes into the audit log first-hand.');
+  await typeLine(term, '<span class="p">$</span> rrsync sync examples/register.xlsx --project RISK --apply', '$ rrsync sync examples/register.xlsx --project RISK --apply', id);
+  if (id !== run) return; await sleep(400);
+  out(term, '<span class="w">DRIFT    R-005  RISK-5  fields: priority</span>'); out(term, '<span class="c">…</span>');
+  await sleep(300);
+  prio.className = 'pill hi'; prio.textContent = 'Highest'; bdg.className = 'badge ok on'; bdg.textContent = 'restored';
+  out(term, '<span class="g">Applied: 2 writes. Audit log: out/audit/20261007T215842Z.jsonl</span>');
+  await sleep(500); if (id !== run) return;
+  tape.innerHTML = AUDIT; ring($('#tring'), 3);
+  await sleep(500); $('#tring').classList.add('on'); $('#tnote').classList.add('on');
+  setCap('✓', 'Status was never touched. The Jira value it replaced is in the audit log.');
+  await sleep(6500); if (id !== run) return;
+  hero();
+}
+$('#replay').addEventListener('click', () => hero());
+const heroIO = new IntersectionObserver(es => { if (es[0].isIntersecting && !run) hero(); }, { threshold: .3 });
+heroIO.observe(demo);
+
+/* ---------- live run board ---------- */
+const COLS = { bk: $('#c-bk'), ip: $('#c-ip'), dn: $('#c-dn') };
+const cards = {};
+R.forEach((r, i) => {
+  const n = i + 1, s = r[2] * r[3], [p, c] = PRI(s);
+  const el = document.createElement('div');
+  el.className = 'kc hid'; el.style.setProperty('--pc', c);
+  el.innerHTML = `RISK-${n}<span class="sub">${p}</span>`;
+  el.dataset.base = p; el.dataset.n = n;
+  COLS.bk.appendChild(el); cards[n] = el;
+});
+const AUD = 'https://github.com/kulieff21/risk-register-jira-sync/blob/f48ba78f796e96630155f257f499f1d9a7343665/results/audit/';
+const T = {
+  0: '<div><span class="p">$</span> rrsync setup --project RISK</div><div class="c">Project RISK not found; trying to create it.</div><div class="g">Created project RISK.</div>',
+  1: '<div><span class="p">$</span> rrsync sync examples/register.xlsx --project RISK --apply</div><div class="c">CREATE   R-001  [R-001] Leaver accounts not disabled</div><div class="c">… 23 more CREATE lines</div><div class="c">plan: create 24, update 0, drift 0, noop 0, conflict 0, orphan 0</div><div class="g">Applied: 24 writes. Audit log: out/audit/20261007T215102Z.jsonl</div>',
+  2: '<div><span class="p">$</span> rrsync sync examples/register.xlsx --project RISK --apply</div><div class="c">plan: create 0, update 0, drift 0, noop 24, conflict 0, orphan 0</div><div class="g">Applied: 0 writes. Audit log: out/audit/20261007T215147Z.jsonl</div>',
+  3: '<div class="c"># no command: a person edits issues in the Jira web UI</div><div>RISK-1   status   Backlog → Done</div><div>RISK-6   status   Backlog → In Progress</div><div class="w">RISK-5   priority Highest → Low</div><div class="w">RISK-13  due date 2026-11-30 → 2026-12-03</div>',
+  4: '<div><span class="p">$</span> rrsync sync examples/register.xlsx --project RISK</div><div class="w">DRIFT    R-005  RISK-5  fields: priority</div><div class="w">           drift in priority: Jira has \'Low\', register wins</div><div class="w">DRIFT    R-013  RISK-13  fields: duedate</div><div class="w">           drift in duedate: Jira has \'2026-12-03\', register wins</div><div class="c">plan: create 0, update 0, drift 2, noop 22, conflict 0, orphan 0</div><div class="c">Dry run: no changes made. Use --apply to write.</div>',
+  5: '<div><span class="p">$</span> rrsync sync examples/register.xlsx --project RISK --apply</div><div class="c">…</div><div class="c">plan: create 0, update 0, drift 2, noop 22, conflict 0, orphan 0</div><div class="g">Applied: 2 writes. Audit log: out/audit/20261007T215842Z.jsonl</div><div class="c"># audit file: RISK-5 priority "Low" → "Highest", 204</div><div class="c"># audit file: RISK-13 duedate "2026-12-03" → "2026-11-30", 204</div>',
+  6: '<div><span class="p">$</span> rrsync report examples/register.xlsx --project RISK --today 2026-10-08</div><div class="g">Wrote out/report.md and out/register-status.xlsx</div><div class="r"># out/report.md, overdue: R-022 2026-08-31 · R-014 2026-09-01 · R-006 2026-09-30 · R-015 2026-10-05</div><div class="c"># past due but Done, not listed: R-001 2026-09-15</div>',
+};
+const CH = {
+  0: [], 1: ['<b>✓</b> 20261007T215102Z.jsonl · 25 lines (header + 24)'], 2: ['<b>✓</b> 20261007T215147Z.jsonl · 1 line (header only)'],
+  3: ['not run: the tool has not seen these yet'], 4: ['dry run: no audit file, no write calls'],
+  5: ['<b>✓</b> 20261007T215842Z.jsonl · 3 lines (header + 2)'], 6: ['report: reads Jira, writes nothing to it'],
+};
+const WR = { 0: 0, 1: 24, 2: 0, 3: '–', 4: 0, 5: 2, 6: 0 };
+function flipTo(el, col) {
+  if (el.parentElement === col) return;
+  const a = el.getBoundingClientRect();
+  const next = [...col.children].find(c => +c.dataset.n > +el.dataset.n); col.insertBefore(el, next || null);
+  if (RM) return;
+  const b = el.getBoundingClientRect();
+  el.animate([{ transform: `translate(${a.left - b.left}px, ${a.top - b.top}px)` }, { transform: 'none' }], { duration: 650, easing: 'cubic-bezier(.5,0,.2,1)' });
+}
+let curStep = -1;
+function setStep(s) {
+  if (s === curStep) return;
+  const prev = curStep; curStep = s;
+  document.querySelectorAll('.steps .st').forEach(e => e.classList.toggle('cur', +e.dataset.s === s));
+  $('#sterm').innerHTML = T[s];
+  $('#chips').innerHTML = CH[s].map(c => `<span>${c}</span>`).join('');
+  $('#bwrites').textContent = 'writes ' + WR[s];
+  Object.values(cards).forEach((el, i) => {
+    el.classList.remove('noop', 'ed', 'rs', 'od', 'dim', 'ringed');
+    const n = +el.dataset.n; let sub = el.dataset.base;
+    const show = s >= 1;
+    if (show && el.classList.contains('hid')) {
+      if (!RM && prev < 1) { el.style.transitionDelay = (i * 45) + 'ms'; setTimeout(() => el.style.transitionDelay = '', 1600); }
+      el.classList.remove('hid');
+    } else if (!show) el.classList.add('hid');
+    const moved = s >= 3;
+    flipTo(el, (n === 1 && moved) ? COLS.dn : (n === 6 && moved) ? COLS.ip : COLS.bk);
+    if (s === 2) el.classList.add('noop');
+    if (s === 3 || s === 4) {
+      if (n === 5) { el.classList.add('ed'); sub = 'prio Low'; }
+      if (n === 13) { el.classList.add('ed'); sub = 'due 12-03'; }
+      if (s === 4 && (n === 5 || n === 13)) { sub = n === 5 ? 'DRIFT prio' : 'DRIFT due'; el.classList.add('ringed'); }
+      if (s === 4 && (n === 1 || n === 6)) sub = 'no drift';
+      if (s === 4 && ![1, 5, 6, 13].includes(n)) el.classList.add('dim');
+    }
+    if (s === 5) {
+      if (n === 5) { el.classList.add('rs'); sub = 'Highest ✓'; }
+      if (n === 13) { el.classList.add('rs'); sub = 'due 11-30 ✓'; }
+    }
+    if (s === 6) {
+      if ([22, 14, 6, 15].includes(n)) { el.classList.add('od'); sub = 'late ' + R[n - 1][7].slice(5); }
+      else if (n === 1) { sub = 'Done, 09-15'; el.classList.add('ringed'); }
+      else el.classList.add('dim');
+    }
+    el.querySelector('.sub').textContent = sub;
+    if (el.classList.contains('ringed')) { el.classList.remove('ringed'); ring(el, n); el.classList.add('ringed'); }
+  });
+  $('#n-bk').textContent = s >= 1 ? COLS.bk.children.length : 0;
+  $('#n-ip').textContent = s >= 1 ? COLS.ip.children.length : 0;
+  $('#n-dn').textContent = s >= 1 ? COLS.dn.children.length : 0;
+  $('#bcount').textContent = s >= 1 ? 24 : 0;
+}
+const stepIO = new IntersectionObserver(es => {
+  es.forEach(e => { if (e.isIntersecting) setStep(+e.target.dataset.s); });
+}, { rootMargin: matchMedia('(max-width:900px)').matches ? '-68% 0px -28% 0px' : '-45% 0px -45% 0px' });
+document.querySelectorAll('.steps .st').forEach(e => stepIO.observe(e));
+setStep(0);
+
+/* ---------- validation gate (examples/register-with-errors.xlsx, rrsync validate output) ---------- */
+const VH = ['risk_id', 'title', 'owner', 'likelihood', 'impact', 'controls', 'treatment', 'treatment_plan', 'due_date', 'residual_likelihood', 'residual_impact', 'approved_by'];
+const VR = [
+ ['RISK-1','Bad id format','Owner',3,3,'5.15','mitigate','Plan','2026-12-01',2,2,''],
+ ['R-002','Duplicate id, first','Owner',3,3,'5.15','mitigate','Plan','2026-12-01',2,2,''],
+ ['R-002','Duplicate id, second','Owner',3,3,'5.15','mitigate','Plan','2026-12-01',2,2,''],
+ ['R-003','','',3,3,'5.15','mitigate','Plan','2026-12-01',2,2,''],
+ ['R-004','Bad scores','Owner',7,'high','5.15','mitigate','Plan','2026-12-01',0,2,''],
+ ['R-005','Residual above inherent','Owner',2,2,'5.15','mitigate','Plan','2026-12-01',4,4,''],
+ ['R-006','No controls','Owner',3,3,'','mitigate','Plan','2026-12-01',2,2,''],
+ ['R-007','2013 control id','Owner',3,3,'A.9.2.3, 5.99','mitigate','Plan','2026-12-01',2,2,''],
+ ['R-008','Unknown treatment','Owner',3,3,'5.15','ignore','Plan','2026-12-01',2,2,''],
+ ['R-009','No plan or due date','Owner',3,3,'5.15','transfer','','',2,2,''],
+ ['R-010','Accept without approver','Owner',2,2,'5.15','accept','Tolerated','',2,2,''],
+ ['R-011','Bad due date','Owner',3,3,'5.15','avoid','Plan','next Tuesday',1,1,''],
+ ['R-012','High score accepted','Owner',5,4,'5.15','accept','Tolerated','',5,4,'CISO Dana Whitcombe'],
+ ['R-013','Mitigation changes nothing','Owner',3,3,'5.15','mitigate','Plan','2026-12-01',3,3,''],
+];
+const E = [ // [sheet row, columns, level, message]
+ [2,[0],'e',"[RISK-1] risk_id 'RISK-1' does not match R-NNN (e.g. R-001)"],
+ [4,[0],'e','[R-002] duplicate risk_id R-002 (first seen in row 3)'],
+ [5,[1],'e','[R-003] title is empty'],
+ [5,[2],'e','[R-003] owner is empty'],
+ [5,[],'e','[R-003] asset is empty'],
+ [5,[],'e','[R-003] threat is empty'],
+ [6,[3],'e','[R-004] likelihood must be an integer 1-5'],
+ [6,[4],'e','[R-004] impact must be an integer 1-5'],
+ [6,[9],'e','[R-004] residual_likelihood must be an integer 1-5'],
+ [7,[9,10],'e','[R-005] residual score 16 is greater than inherent score 4'],
+ [8,[5],'e','[R-006] controls is empty; list at least one Annex A 2022 control'],
+ [9,[5],'e',"[R-007] control 'A.9.2.3' uses the ISO 27001:2013 numbering, which is not accepted; use the 2022 Annex A ID (for example 5.15)"],
+ [9,[],'e',"[R-007] control '5.99' is not an ISO/IEC 27001:2022 Annex A control ID"],
+ [10,[6],'e',"[R-008] treatment 'ignore' must be one of: mitigate, accept, transfer, avoid"],
+ [11,[7],'e',"[R-009] treatment 'transfer' needs a treatment_plan"],
+ [11,[8],'e',"[R-009] treatment 'transfer' needs a due_date"],
+ [12,[11],'e',"[R-010] treatment 'accept' needs approved_by (a named approver)"],
+ [13,[8],'e',"[R-011] due_date 'next Tuesday' is not a date (use YYYY-MM-DD)"],
+ [14,[3,4,6],'w','[R-012] high inherent score 20 (>= 15) is being accepted; check the approval'],
+ [15,[9,10],'w','[R-013] mitigate but residual score 9 equals inherent; the plan changes nothing'],
+];
+const vt = $('#vt');
+vt.innerHTML = '<tr><th class="rn"></th>' + VH.map(h => `<th>${h}</th>`).join('') + '</tr>' +
+  VR.map((r, i) => `<tr><td class="rn">${i + 2}</td>` + r.map((v, j) => `<td data-k="${i + 2}-${j}"${v === '' ? ' class="empty"' : ''}>${v === '' ? '∅' : esc(String(v))}</td>`).join('') + '</tr>').join('');
+const el = $('#elist');
+el.innerHTML = E.map(e => `<li class="${e[2]}"><span class="r">row ${e[0]}</span><span class="m">${e[2] === 'e' ? 'error' : 'warning'}: ${esc(e[3])}</span></li>`).join('') +
+  '<li class="e" style="border:0"><span class="r"></span><span class="m" style="color:var(--ink);font-weight:700">14 risks, 18 errors, 2 warnings</span></li>';
+let gated = false;
+async function runGate() {
+  if (gated) return; gated = true;
+  const lis = el.querySelectorAll('li'); let ne = 0, nw = 0;
+  for (let i = 0; i < E.length; i++) {
+    const [row, cols, lv] = E[i];
+    cols.forEach(c => { const td = vt.querySelector(`td[data-k="${row}-${c}"]`); td.classList.add(lv === 'e' ? 'bad' : 'warn'); ring(td, row * 7 + c, 1.8); td.classList.add('on'); });
+    lis[i].classList.add('on');
+    if (lv === 'e') ne++; else nw++;
+    $('#ce').textContent = ne; $('#cw').textContent = nw;
+    if (!RM) await sleep(170);
+  }
+  lis[E.length].classList.add('on');
+  if (!RM) await sleep(300);
+  $('#stamp').classList.add('on');
+}
+new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { runGate(); o.disconnect(); } }, { threshold: .35 }).observe($('#gatebox'));
+
+/* ---------- heat map ---------- */
+const hm = $('#hm');
+for (let imp = 5; imp >= 1; imp--) for (let lik = 1; lik <= 5; lik++) {
+  const c = document.createElement('div'); c.className = 'cell';
+  c.style.background = PRI(imp * lik)[1];
+  c.innerHTML = `<span class="cnt" data-c="${lik}-${imp}"></span><i>${imp * lik}</i>`;
+  hm.appendChild(c);
+}
+const dots = R.map((r, i) => {
+  const d = document.createElement('span'); d.className = 'dot' + (r[6] === 'accept' ? ' acc' : '');
+  d.tabIndex = 0;
+  const label = `${r[0]} ${r[1]} · inherent ${r[2]}×${r[3]}=${r[2] * r[3]} → residual ${r[4]}×${r[5]}=${r[4] * r[5]} · ${r[6]}`;
+  d.setAttribute('aria-label', label);
+  const show = () => $('#hmtip').textContent = label;
+  d.addEventListener('mouseenter', show); d.addEventListener('focus', show); d.addEventListener('click', show);
+  hm.appendChild(d); return d;
+});
+let hmMode = 'inh';
+function placeDots(mode) {
+  hmMode = mode;
+  const cells = hm.querySelectorAll('.cell'), slot = {};
+  R.forEach((r, i) => {
+    const L = mode === 'inh' ? r[2] : r[4], I = mode === 'inh' ? r[3] : r[5];
+    const k = L + '-' + I; const j = (slot[k] = (slot[k] || 0) + 1) - 1;
+    const c = cells[(5 - I) * 5 + (L - 1)], w = c.offsetWidth, ds = Math.min(14, w / 5.2), st = w / 4.4;
+    const d = dots[i]; d.style.width = d.style.height = ds + 'px';
+    d.style.left = (c.offsetLeft + 6 + (j % 4) * st) + 'px';
+    d.style.top = (c.offsetTop + 21 + Math.floor(j / 4) * st * .9) + 'px';
+    d.style.transitionDelay = RM ? '0ms' : (i * 22) + 'ms';
+  });
+  hm.querySelectorAll('.cnt').forEach(c => { c.textContent = slot[c.dataset.c] || ''; });
+  document.querySelectorAll('.hm-tog button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+}
+addEventListener('resize', () => placeDots(hmMode));
+placeDots('inh');
+document.querySelectorAll('.hm-tog button').forEach(b => b.addEventListener('click', () => { hmAuto = false; placeDots(b.dataset.m); }));
+let hmAuto = true;
+new IntersectionObserver((es, o) => { if (es[0].isIntersecting) { o.disconnect(); if (!RM) setTimeout(() => { if (hmAuto) placeDots('res'); }, 1800); } }, { threshold: .55 }).observe(hm);
+
+/* treatments and Annex A coverage, computed from the register */
+const tc = {}; R.forEach(r => tc[r[6]] = (tc[r[6]] || 0) + 1);
+const ctr = new Set(); R.forEach(r => r[8].split(',').forEach(c => ctr.add(c.trim())));
+const TH = [['organizational', '5', 37], ['people', '6', 8], ['physical', '7', 14], ['technological', '8', 34]];
+const cov = TH.map(([n, p, t]) => [n, [...ctr].filter(c => c.split('.')[0] === p).length, t]);
+cov.push(['all themes', ctr.size, 93]);
+const bar = (cls, name, v, max, txt) => `<div class="tbar ${cls}"><span>${name}</span><span class="tr"><span class="fill" data-w="${(v / max * 100).toFixed(1)}"></span></span><span class="v">${txt}</span></div>`;
+$('#tbars').innerHTML = ['mitigate', 'accept', 'transfer', 'avoid'].map(t => bar('', t, tc[t] || 0, 24, tc[t] || 0)).join('');
+$('#cbars').innerHTML = cov.map(([n, v, t]) => bar('c', n, v, t, `${v}/${t}`)).join('');
+new IntersectionObserver((es, o) => { es.forEach(e => { if (e.isIntersecting) { e.target.querySelectorAll('.fill').forEach(f => f.style.width = f.dataset.w + '%'); o.unobserve(e.target); } }); }, { threshold: .3 })
+  .observe(document.querySelector('.side-stats'));
+})();
+</script>
+</body>
+</html>

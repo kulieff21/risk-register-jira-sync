@@ -8,6 +8,9 @@ institution, "Larkspur Payments". No real company, person or system is involved.
 
 Built with AI assistance and reviewed by a human.
 
+**Case study:** https://kulieff21.github.io/risk-register-jira-sync/ (the live run, the validation gate and the
+report, animated; source in `site/`).
+
 ## What it does
 
 - Validates the register (10 error rules, 2 warnings) and reports every problem with its sheet row.
